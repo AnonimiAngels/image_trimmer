@@ -35,8 +35,8 @@ Ensure these libraries are included and correctly configured in your build envir
 1. Clone the repository:
 
 	```bash
-	git clone <repository_url>
-	cd <repository_directory>
+	git clone https://github.com/AnonimiAngels/image_trimmer.git
+	cd image_trimmer
 	```
 
 2. Use the project manager script to generate build files, build the project, and more:
