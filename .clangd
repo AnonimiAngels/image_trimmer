@@ -1,0 +1,14 @@
+CompileFlags:
+  Compiler: clang++
+  CompilationDatabase: .vscode/compile_commands.json
+Hover:
+  ShowAKA: Yes
+Diagnostics:
+  ClangTidy:
+    FastCheckFilter: Strict
+    Add: [modernize-*, bugprone-*, performance-*, readability-*]
+    Remove: [readability-magic-numbers, bugprone-easily-swappable-parameters, fuchsia*, llvmlibc*, altera*]
+    CheckOptions:
+      readability-identifier-naming: lower_case
+InlayHints:
+  BlockEnd: No
