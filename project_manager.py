@@ -98,7 +98,7 @@ def generate_vscode_files():
 				"type": "cppdbg",
 				"request": "launch",
 				"program": f"{bin_dir}/{project_name}",
-				"args": [],
+				"args": ["-p", "./replica", "-c", "'*.png'", "-z"],
 				"stopAtEntry": False,
 				"cwd": f"{start_dir}",
 				"environment": [],
@@ -162,8 +162,7 @@ def check_cmakelists_change():
 
 
 def post_build():
-	# rsync -acz ./anim_002/* to ./test_data/
-	rsync_return_code = subprocess.run(["rsync", "-acz", f"{bin_dir}/data/", f"{bin_dir}/test_data/"]).returncode
+	rsync_return_code = subprocess.run(["rsync", "-acz", f"{start_dir}/test/", f"{start_dir}/replica/"]).returncode
 	if rsync_return_code != 0:
 		print("Rsync failed.")
 		sys.exit(1)
@@ -187,7 +186,7 @@ def compile(build_type="Debug"):
 		print("Build failed.")
 		sys.exit(1)
 
-	# post_build()
+	post_build()
 
 def generate_docs():
 	"""Generates documentation using Doxygen."""
@@ -246,6 +245,15 @@ def test_required():
 
 		sys.exit(1)
 
+def install_project():
+	"""Installs the project."""
+	file_exists = subprocess.run(["test", "-f", f"{bin_dir}/{project_name}"]).returncode == 0
+	if not file_exists:
+		print("Executable does not exist, skipping install.")
+		return
+
+	subprocess.run(["sudo", "cp", "-f", f"{bin_dir}/{project_name}", "/usr/local/bin/"])
+
 def print_example():
 	print("\nExample:")
 	print("\t\tRebuild and run the project in debug mode:")
@@ -280,6 +288,7 @@ if __name__ == "__main__":
 	parser.add_argument("-i", "--info", help="Print configuration information.", action="store_true")
 	parser.add_argument("-e", "--example", help="Print example usage.", action="store_true")
 	parser.add_argument("-g", "--generate", help="Generate configuration files.", action="store_true")
+	parser.add_argument("--install", help="Install the project.", action="store_true")
 	args = parser.parse_args()
 
 	test_required()
@@ -310,3 +319,6 @@ if __name__ == "__main__":
 
 	if args.run:
 		run_project()
+
+	if args.install:
+		install_project()
