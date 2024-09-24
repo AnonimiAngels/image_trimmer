@@ -12,6 +12,8 @@
 #include <cstdint>	  // IWYU pragma: keep
 #include <filesystem> // IWYU pragma: keep
 #include <regex>	  // IWYU pragma: keep
+#include <thread>	  // IWYU pragma: keep
+#include <future>	  // IWYU pragma: keep
 
 // Unix
 #include <fnmatch.h> // IWYU pragma: keep

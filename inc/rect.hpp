@@ -12,20 +12,29 @@ class rect final
 
 	[[nodiscard]] auto get_area() const -> int32_t
 	{
-		const int32_t width	 = std::abs(m_end_x - m_start_x);
-		const int32_t height = std::abs(m_end_y - m_start_y);
+		const int32_t width	 = m_end_x - m_start_x;
+		const int32_t height = m_end_y - m_start_y;
 		return width * height;
+	}
+
+	[[nodiscard]] auto get_perimeter() const -> int32_t
+	{
+		const int32_t width	 = m_end_x - m_start_x;
+		const int32_t height = m_end_y - m_start_y;
+		return 2 * (width + height);
 	}
 
 	[[nodiscard]] auto get_x() const -> int32_t { return m_start_x; }
 	[[nodiscard]] auto get_y() const -> int32_t { return m_start_y; }
-	[[nodiscard]] auto get_width() const -> int32_t { return m_end_x - m_start_x; }
-	[[nodiscard]] auto get_height() const -> int32_t { return m_end_y - m_start_y; }
+	[[nodiscard]] auto get_width() const -> int32_t { return m_end_x > m_start_x ? m_end_x - m_start_x : m_start_x - m_end_x; }
+	[[nodiscard]] auto get_height() const -> int32_t { return m_end_y > m_start_y ? m_end_y - m_start_y : m_start_y - m_end_y; }
 
 	auto set_x(int32_t in_x) -> void { m_start_x = in_x; }
 	auto set_y(int32_t in_y) -> void { m_start_y = in_y; }
 	auto set_width(int32_t in_width) -> void { m_end_x = m_start_x + in_width; }
 	auto set_height(int32_t in_height) -> void { m_end_y = m_start_y + in_height; }
+
+	auto operator>(const rect& in_rect) const -> bool { return get_perimeter() > in_rect.get_perimeter(); }
 
   private:
 	int32_t m_start_x;

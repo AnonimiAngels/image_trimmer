@@ -8,7 +8,7 @@
 
 static auto compress_png(const std::string_view& file_path) -> void
 {
-	std::string cmd = std::format("optipng -o7 -zm1-9 -strip all -nb -clobber -quiet {}", file_path);
+	std::string cmd = std::format(" pngquant --ext .png --force --strip --skip-if-larger {}", file_path);
 	if (std::system(cmd.c_str()) != 0)
 	{
 		throw std::runtime_error("Failed to compress PNG file.");
