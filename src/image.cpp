@@ -30,13 +30,9 @@ auto image::flood_fill() -> rect
 		int32_t y;
 	};
 
-	// Array for tracking visited pixels
 	std::vector<std::vector<bool>> visited(m_rect.get_height(), std::vector<bool>(m_rect.get_width(), false));
-
-	// 4-directional deltas (up, down, left, right)
 	const std::array<point, 4> directions = {point{-1, 0}, point{1, 0}, point{0, -1}, point{0, 1}};
 
-	// Find the first non-transparent pixel to start flood fill
 	bool found_seed = false;
 	point seed;
 
@@ -55,28 +51,23 @@ auto image::flood_fill() -> rect
 
 	if (!found_seed)
 	{
-		// If no non-transparent pixel is found, return an empty rectangle
 		return {0, 0, 0, 0};
 	}
 
-	// BFS queue for flood fill
 	std::queue<point> queue;
 	queue.push(seed);
 	visited[seed.y][seed.x] = true;
 
-	// Start flood fill
 	while (!queue.empty())
 	{
 		point current = queue.front();
 		queue.pop();
 
-		// Update bounding box
 		x_min = std::min(x_min, current.x);
 		x_max = std::max(x_max, current.x);
 		y_min = std::min(y_min, current.y);
 		y_max = std::max(y_max, current.y);
 
-		// Explore neighbors
 		for (const auto& dir : directions)
 		{
 			int32_t new_x = current.x + dir.x;
@@ -106,6 +97,11 @@ auto image::flood_fill() -> rect
 
 auto image::std_algo() -> rect
 {
+	if (m_trim_rect.get_area() > 0)
+	{
+		return m_trim_rect;
+	}
+
 	int32_t x_min = std::numeric_limits<int32_t>::max();
 	int32_t x_max = std::numeric_limits<int32_t>::min();
 	int32_t y_min = std::numeric_limits<int32_t>::max();
@@ -127,13 +123,12 @@ auto image::std_algo() -> rect
 		}
 	}
 
-	rect l_rect;
-	l_rect.set_x(x_min);
-	l_rect.set_y(y_min);
-	l_rect.set_width(x_max - x_min + 1);
-	l_rect.set_height(y_max - y_min + 1);
+	m_trim_rect.set_x(x_min);
+	m_trim_rect.set_y(y_min);
+	m_trim_rect.set_width(x_max - x_min + 1);
+	m_trim_rect.set_height(y_max - y_min + 1);
 
-	return l_rect;
+	return m_trim_rect;
 }
 
 auto image::write_data(std::vector<uint8_t>& out_data, const rect& in_rect) -> void
@@ -171,9 +166,9 @@ image::image(const std::string_view& file_path) : m_file_path(file_path)
 
 	const size_t new_data_size = static_cast<size_t>(width * height) * channels;
 	m_data.resize(new_data_size);
-	m_data.reserve(new_data_size);
 
 	std::memcpy(m_data.data(), ptr_data, new_data_size);
+	stbi_image_free(ptr_data);
 
 	m_channels = static_cast<size_t>(channels);
 	m_rect.set_x(0);
