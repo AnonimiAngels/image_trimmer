@@ -6,6 +6,13 @@ auto gather_file_paths(const std::filesystem::path& in_path, const std::string& 
 {
 	std::vector<std::string> image_file_paths;
 
+	// If in_path is a file, return it
+	if (std::filesystem::is_regular_file(in_path))
+	{
+		image_file_paths.push_back(in_path.string());
+		return image_file_paths;
+	}
+
 	for (const auto& entry : std::filesystem::directory_iterator(in_path))
 	{
 		if (entry.is_regular_file())
@@ -68,40 +75,86 @@ auto get_file_size(const std::vector<std::string>& in_vector) -> double_t
 
 	return total_size;
 }
-
-auto calculate_new_rect(const std::vector<image*>& in_vector, progress& in_bar) -> rect
+auto calculate_new_rect(const std::vector<image*>& in_vector, progress& in_bar, uint8_t in_algorithm) -> rect
 {
 	in_bar.set_progress(0);
 	in_bar.set_total(in_vector.size());
 
-	rect new_trim_rect = {0, 0, 0, 0};
+	// Initialize the bounding rect with extreme values
+	spdlog::info("Calculating bounding box...");
 
-	spdlog::info("Calculating biggest bounding box...");
+	int32_t min_x = std::numeric_limits<int32_t>::max();
+	int32_t min_y = std::numeric_limits<int32_t>::max();
+	int32_t max_x = std::numeric_limits<int32_t>::min();
+	int32_t max_y = std::numeric_limits<int32_t>::min();
+
+	// Iterate over each image's bounding rectangle and find both the smallest and largest bounding box
 	for (const auto& img : in_vector)
 	{
-		const auto& rect = img->get_image_boundings();
+		const auto& rect = img->get_image_boundings(in_algorithm);
 
-		if (rect > new_trim_rect)
-		{
-			new_trim_rect = rect;
-		}
+		// Update min and max for x and y
+		min_x = std::min(min_x, rect.get_x());
+		min_y = std::min(min_y, rect.get_y());
+		max_x = std::max(max_x, rect.get_x() + rect.get_width());
+		max_y = std::max(max_y, rect.get_y() + rect.get_height());
 
 		in_bar.print_progress();
 	}
 
-	return new_trim_rect;
+	// Set the bounding box to the calculated min/max values
+	rect l_trim;
+	l_trim.set_x(min_x);
+	l_trim.set_y(min_y);
+	l_trim.set_width(max_x - min_x);
+	l_trim.set_height(max_y - min_y);
+
+	return l_trim;
 }
 
-auto trim_images(std::vector<image*>& in_vector, const rect& in_box, progress& in_bar) -> void
+auto trim_images(std::vector<image*>& in_vector, progress& in_bar, const rect& in_rect) -> void
 {
+	std::mutex progress_mutex;
+
+	auto trim_image = [&progress_mutex](image* ptr_img, progress& in_bar, const rect& in_rect)
+	{
+		ptr_img->rewrite_with_new_rect(in_rect);
+		std::lock_guard<std::mutex> lock(progress_mutex);
+		in_bar.print_progress();
+	};
+
 	in_bar.set_progress(0);
 	in_bar.set_total(in_vector.size());
 
+	const size_t size_vector = in_vector.size();
+
+	// Get number of max threads
+	const auto max_threads = std::thread::hardware_concurrency();
+	const auto num_threads = std::min(max_threads, static_cast<uint32_t>(size_vector));
+
 	spdlog::info("Trimming images...");
-	for (auto& img : in_vector)
+
+	std::vector<std::future<void>> futures;
+	const size_t chunk_size = size_vector / num_threads;
+
+	for (size_t i = 0; i < num_threads; ++i)
 	{
-		img->rewrite_with_new_rect(in_box);
-		in_bar.print_progress();
+		const size_t start = i * chunk_size;
+		const size_t end   = (i + 1 == num_threads) ? size_vector : (i + 1) * chunk_size;
+
+		futures.push_back(std::async(std::launch::async,
+									 [&in_vector, start, end, &in_bar, &trim_image, &in_rect]()
+									 {
+										 for (size_t j = start; j < end; ++j)
+										 {
+											 trim_image(in_vector[j], in_bar, in_rect);
+										 }
+									 }));
+	}
+
+	for (auto& future : futures)
+	{
+		future.get();
 	}
 }
 
@@ -125,10 +178,10 @@ auto compress_images(std::vector<image*>& in_vector, progress& in_bar) -> void
 	const auto max_threads = std::thread::hardware_concurrency();
 	const auto num_threads = std::min(max_threads, static_cast<uint32_t>(size_vector));
 
-	spdlog::info("Compressing images, using {} threads", num_threads);
-
 	std::vector<std::future<void>> futures;
 	const size_t chunk_size = size_vector / num_threads;
+
+	spdlog::info("Compressing images...");
 
 	for (size_t i = 0; i < num_threads; ++i)
 	{
@@ -160,6 +213,9 @@ auto main(int32_t argc, char* argv[]) -> int32_t
 	bool perform_trim		= false;
 	bool perform_compresion = false;
 
+	uint8_t log_level = spdlog::level::warn;
+	uint8_t algorithm = 1;
+
 	// Bulk trim images based on their alpha channel
 	CLI::App app{std::format("Image trimmer\n\tVersion: {}\n", VERSION)};
 	argv = app.ensure_utf8(argv);
@@ -167,12 +223,16 @@ auto main(int32_t argc, char* argv[]) -> int32_t
 	app.add_option("-p,--path", path_dir, "Path to the image file")->required();
 	app.add_option("-c,--check", check_pattern, "Check pattern for the image files");
 
-	app.add_flag("-t,--trim", perform_trim, "Trim the images");
-	app.add_flag("-z,--compress", perform_compresion, "Compress the images");
+	app.add_flag("-t,--trim", perform_trim, "Flag: Trim the images");
+	app.add_flag("-z,--compress", perform_compresion, "Flag:Compress the images");
+
+	app.add_option("-v,--verbose", log_level, "Set the log level, 0 for trace, 1 for debug, 2 for info, 3 for warn, 4 for error, 5 for critical, 6 for off");
+	app.add_option("-a,--algorithm", algorithm, "Algorithm to use for bounding box calculation, 0 for flood fill, 1 for std algo");
 
 	CLI11_PARSE(app, argc, argv);
 
 	std::string path_str = path_dir.string();
+	spdlog::set_level(static_cast<spdlog::level::level_enum>(log_level));
 
 	// Remove spaces from the path
 	path_str.erase(std::remove_if(path_str.begin(), path_str.end(), ::isblank), path_str.end());
@@ -199,11 +259,12 @@ auto main(int32_t argc, char* argv[]) -> int32_t
 	progress progress_bar;
 	progress_bar.set_total(images.size());
 	progress_bar.set_is_incremental(true);
+	progress_bar.set_is_verbose(log_level <= spdlog::level::info);
 
 	if (perform_trim)
 	{
-		rect new_rect = calculate_new_rect(images, progress_bar);
-		trim_images(images, new_rect, progress_bar);
+		rect new_rect = calculate_new_rect(images, progress_bar, algorithm);
+		trim_images(images, progress_bar, new_rect);
 	}
 
 	if (perform_compresion)
@@ -213,7 +274,7 @@ auto main(int32_t argc, char* argv[]) -> int32_t
 		const double_t new_size = get_file_size(image_file_paths);
 		const double_t ratio	= (prev_size - new_size) / prev_size;
 
-		spdlog::info("Compression ratio: {:.2f}%", ratio * 100);
+		spdlog::info("Compression ratio: {:.2f}% ({:.0f} -> {:.0f})", ratio * 100, prev_size, new_size);
 	}
 
 	spdlog::info("Cleaning up...");

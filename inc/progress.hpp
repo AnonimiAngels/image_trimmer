@@ -15,11 +15,13 @@ class progress
 	auto set_total(size_t in_total) -> void { m_total = in_total; }
 	auto set_fill_char(char in_fill_char) -> void { m_fill_char = in_fill_char; }
 	auto set_is_incremental(bool in_is_incremental) -> void { m_is_incremental = in_is_incremental; }
+	auto set_is_verbose(bool in_is_verbose) -> void { m_is_verbose = in_is_verbose; }
 
 	[[nodiscard]] auto get_progress() const -> size_t { return m_progress; }
 	[[nodiscard]] auto get_total() const -> size_t { return m_total; }
 	[[nodiscard]] auto get_fill_char() const -> char { return m_fill_char; }
 	[[nodiscard]] auto get_is_incremental() const -> bool { return m_is_incremental; }
+	[[nodiscard]] auto get_is_verbose() const -> bool { return m_is_verbose; }
 
 	// print total as a progress bar
 	auto print_progress() -> void
@@ -27,6 +29,11 @@ class progress
 		if (m_is_incremental)
 		{
 			++m_progress;
+		}
+
+		if (!m_is_verbose)
+		{
+			return;
 		}
 
 		const auto percentage = static_cast<double>(m_progress) / static_cast<double>(m_total) * 100.0;
@@ -51,6 +58,7 @@ class progress
 	char m_fill_char{'#'};
 
 	bool m_is_incremental{false};
+	bool m_is_verbose{false};
 };
 
 #endif /* B5333D0E_48CE_4219_B181_64B8A587473B */

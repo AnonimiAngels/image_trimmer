@@ -98,7 +98,7 @@ def generate_vscode_files():
 				"type": "cppdbg",
 				"request": "launch",
 				"program": f"{bin_dir}/{project_name}",
-				"args": ["-p", "./test_replica", "-c", "'*.png'", "-z", "-t"],
+				"args": ["-p", "./test_replica", "-c", "'*.png'", "-z", "-t", "-v", "2"],
 				"stopAtEntry": False,
 				"cwd": f"{start_dir}",
 				"environment": [],
@@ -162,7 +162,9 @@ def check_cmakelists_change():
 
 
 def post_build():
-	rsync_return_code = subprocess.run(["rsync", "-acz", "-delete", f"{start_dir}/test_1/", f"{start_dir}/test_replica/"]).returncode
+	os.system(f"rm -f {start_dir}/test_replica/*")
+
+	rsync_return_code = subprocess.run(["rsync", "-acz", "-delete", f"{start_dir}/test_2/", f"{start_dir}/test_replica/"]).returncode
 	if rsync_return_code != 0:
 		print("Rsync failed.")
 		sys.exit(1)
