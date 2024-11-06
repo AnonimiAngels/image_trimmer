@@ -67,14 +67,14 @@ def generate_cmake_flags(build_type):
 	flags.extend(["-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON"])
 	flags.extend(["-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"])
 
-	flags.extend(["-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=/usr/bin/clang-scan-deps-17"])
+	flags.extend(["-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=/usr/lib/llvm-17/bin/clang-scan-deps"])
 
 	if build_type == "release":
 		flags.extend(["-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} -O3"])
-		flags.extend(["-DCMAKE_C_FLAGS=${CMAKE_C_FLAGS} -O3"])
+		flags.extend(["-DCMAKE_C_FLAGS=${CMAKE_C_FLAGS} -O3 --trace-includes"])
 	else:
 		flags.extend(["-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} -g"])
-		flags.extend(["-DCMAKE_C_FLAGS=${CMAKE_C_FLAGS} -g"])
+		flags.extend(["-DCMAKE_C_FLAGS=${CMAKE_C_FLAGS} -g --trace-includes"])
 
 	return flags
 
@@ -94,26 +94,17 @@ def generate_vscode_files():
 		"version": "0.2.0",
 		"configurations": [
 			{
-				"name": "Debug",
-				"type": "cppdbg",
+				"name": "Debug with LLDB",
+				"type": "lldb",
 				"request": "launch",
-				"program": f"{bin_dir}/{project_name}",
-				"args": ["-p", "./test_replica", "-c", "'*.png'", "-z", "-t", "-v", "2"],
-				"stopAtEntry": False,
-				"cwd": f"{start_dir}",
+				"program": f"${{workspaceFolder}}/bin/{project_name}",
+				"args": [ "-p", "./test_replica", "-c", "*.png", "-z", "-t", "-v", "0" ],
+				"stopAtEntry": "false",
+				"cwd": "${workspaceFolder}",
 				"environment": [],
-				"externalConsole": False,
-				"MIMode": "gdb",
-				"setupCommands": [
-					{
-						"description": "Enable pretty-printing for gdb",
-						"text": "-enable-pretty-printing",
-						"ignoreFailures": True
-					}
-				],
+				"externalConsole": "false",
 				"preLaunchTask": "build",
-				"miDebuggerPath": "/usr/bin/gdb",
-				"miDebuggerArgs": "-q -ex quit; wait() { fg >/dev/null; }; /bin/gdb -q --interpreter=mi"
+				"runInTerminal": "true"
 			}
 		]
 	}
@@ -134,6 +125,16 @@ def generate_vscode_files():
 				"group": {
 					"kind": "build",
 					"isDefault": True
+				}
+			},
+			{
+				"label": "profiling",
+				"type": "shell",
+				"command": "gprof",
+				"args": [f"{bin_dir}/{project_name}", "gmon.out", "|", "gprof2dot", "|", "dot", "-Tpng", "-o", "call_graph.png"],
+				"group": {
+					"kind": "profile",
+					"isDefault": False
 				}
 			}
 		]
@@ -164,7 +165,7 @@ def check_cmakelists_change():
 def post_build():
 	os.system(f"rm -f {start_dir}/test_replica/*")
 
-	rsync_return_code = subprocess.run(["rsync", "-acz", "-delete", f"{start_dir}/test_2/", f"{start_dir}/test_replica/"]).returncode
+	rsync_return_code = subprocess.run(["rsync", "-acz", "-delete", f"{start_dir}/test_3/", f"{start_dir}/test_replica/"]).returncode
 	if rsync_return_code != 0:
 		print("Rsync failed.")
 		sys.exit(1)
@@ -243,7 +244,7 @@ def test_required():
 		for exe in missing_executables:
 			print(f"  - {exe}")
 
-		print("sudo apt update -y && sudo apt install -y rsync ssh desktop-file-utils cmake ninja-build clang clangd clang-tools-17 clang-tidy clang-format llvm doxygen graphviz gdb libspdlog-dev build-essential")
+		print("sudo apt update -y && sudo apt install -y clang-tools-17 rsync ssh desktop-file-utils cmake ninja-build graphviz doxygen clang clangd clang-tools-17 clang-tidy clang-format llvm doxygen graphviz gdb libspdlog-dev build-essential")
 
 		sys.exit(1)
 

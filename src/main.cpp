@@ -15,6 +15,8 @@ auto gather_file_paths(const std::filesystem::path& in_path, const std::string& 
 
 	for (const auto& entry : std::filesystem::directory_iterator(in_path))
 	{
+		spdlog::trace("Found: {}", entry.path().string());
+
 		if (entry.is_regular_file())
 		{
 			const auto& path	 = entry.path();
@@ -24,13 +26,17 @@ auto gather_file_paths(const std::filesystem::path& in_path, const std::string& 
 			// If doenst match the regex, skip the file
 			if (!std::regex_match(extension, std::regex(".*\\.(png|jpg|jpeg)")))
 			{
+				spdlog::trace("Skipping no regex match: {}", path.string());
 				continue;
 			}
 
 			if (!in_check_pattern.empty() && fnmatch(in_check_pattern.c_str(), filename.c_str(), 0) != 0)
 			{
+				spdlog::trace("Skipping no fnmatch match: {}", path.string());
 				continue;
 			}
+
+			spdlog::trace("Adding: {}", path.string());
 
 			image_file_paths.push_back(path.string());
 		}
@@ -75,7 +81,7 @@ auto get_file_size(const std::vector<std::string>& in_vector) -> double_t
 
 	return total_size;
 }
-auto calculate_new_rect(const std::vector<image*>& in_vector, progress& in_bar, uint8_t in_algorithm) -> rect
+auto calculate_new_rect(const std::vector<image*>& in_vector, progress& in_bar, uint8_t in_algorithm, bool in_apply_parity) -> rect
 {
 	in_bar.set_progress(0);
 	in_bar.set_total(in_vector.size());
@@ -108,6 +114,16 @@ auto calculate_new_rect(const std::vector<image*>& in_vector, progress& in_bar, 
 	l_trim.set_y(min_y);
 	l_trim.set_width(max_x - min_x);
 	l_trim.set_height(max_y - min_y);
+
+	if (in_apply_parity)
+	{
+		l_trim.set_x(l_trim.get_x() % 2 == 0 ? l_trim.get_x() : l_trim.get_x() - 1);
+		l_trim.set_y(l_trim.get_y() % 2 == 0 ? l_trim.get_y() : l_trim.get_y() - 1);
+		l_trim.set_width(l_trim.get_width() % 2 == 0 ? l_trim.get_width() : l_trim.get_width() + 1);
+		l_trim.set_height(l_trim.get_height() % 2 == 0 ? l_trim.get_height() : l_trim.get_height() + 1);
+	}
+
+	spdlog::info("Trimming to: x: {}, y: {}, width: {}, height: {}", l_trim.get_x(), l_trim.get_y(), l_trim.get_width(), l_trim.get_height());
 
 	return l_trim;
 }
@@ -212,8 +228,10 @@ auto main(int32_t argc, char* argv[]) -> int32_t
 
 	bool perform_trim		= false;
 	bool perform_compresion = false;
+	bool perform_dry_run	= false;
+	bool apply_parity		= false;
 
-	uint8_t log_level = spdlog::level::warn;
+	uint8_t log_level = spdlog::level::err;
 	uint8_t algorithm = 1;
 
 	// Bulk trim images based on their alpha channel
@@ -225,6 +243,8 @@ auto main(int32_t argc, char* argv[]) -> int32_t
 
 	app.add_flag("-t,--trim", perform_trim, "Flag: Trim the images");
 	app.add_flag("-z,--compress", perform_compresion, "Flag:Compress the images");
+	app.add_flag("-d,--dry-run", perform_dry_run, "Flag: Dry run, do not modify the images");
+	app.add_flag("-e,--parity", apply_parity, "Flag: Adds to new image offsets to make it even.");
 
 	app.add_option("-v,--verbose", log_level, "Set the log level, 0 for trace, 1 for debug, 2 for info, 3 for warn, 4 for error, 5 for critical, 6 for off");
 	app.add_option("-a,--algorithm", algorithm, "Algorithm to use for bounding box calculation, 0 for flood fill, 1 for std algo");
@@ -241,6 +261,13 @@ auto main(int32_t argc, char* argv[]) -> int32_t
 	path_dir = std::filesystem::path(path_str);
 	path_dir = std::filesystem::absolute(path_dir);
 	path_dir = path_dir.lexically_normal();
+
+	spdlog::trace("Path: {}", path_dir.string());
+	spdlog::trace("Check pattern: {}", check_pattern);
+	spdlog::trace("Trim: {}", perform_trim);
+	spdlog::trace("Compress: {}", perform_compresion);
+	spdlog::trace("Log level: {}", log_level);
+	spdlog::trace("Algorithm: {}", algorithm);
 
 	if (!std::filesystem::exists(path_dir))
 	{
@@ -260,10 +287,15 @@ auto main(int32_t argc, char* argv[]) -> int32_t
 	progress_bar.set_total(images.size());
 	progress_bar.set_is_incremental(true);
 	progress_bar.set_is_verbose(log_level <= spdlog::level::info);
+	rect new_rect;
+
+	if (perform_trim || perform_dry_run)
+	{
+		new_rect = calculate_new_rect(images, progress_bar, algorithm, apply_parity);
+	}
 
 	if (perform_trim)
 	{
-		rect new_rect = calculate_new_rect(images, progress_bar, algorithm);
 		trim_images(images, progress_bar, new_rect);
 	}
 
