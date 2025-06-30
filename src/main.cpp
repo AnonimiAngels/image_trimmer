@@ -81,6 +81,7 @@ auto get_file_size(const std::vector<std::string>& in_vector) -> double_t
 
 	return total_size;
 }
+
 auto calculate_new_rect(const std::vector<image*>& in_vector, progress& in_bar, uint8_t in_algorithm, bool in_apply_parity) -> rect
 {
 	in_bar.set_progress(0);

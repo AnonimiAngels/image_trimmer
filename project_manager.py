@@ -24,6 +24,7 @@ launch_file = vscode_dir + "/launch.json"
 tasks_file = vscode_dir + "/tasks.json"
 
 project_name = "image_trimmer"
+llvm_version = "19"
 
 def print_debug(*args, **kwargs):
 	"""Prints debug messages."""
@@ -32,7 +33,11 @@ def print_debug(*args, **kwargs):
 def cleanup():
 	"""Removes build and cache folders."""
 	# Remove directories
-	subprocess.run(["rm", "-rf", build_dir, cache_dir, f"{bin_dir}/{project_name}", docs_dir])
+	subprocess.run(["rm", "-rf", cache_dir, f"{bin_dir}/{project_name}", docs_dir])
+	ignore_dirs = ["_deps"]
+	for item in os.listdir(build_dir):
+		if item not in ignore_dirs:
+			subprocess.run(["rm", "-rf", os.path.join(build_dir, item)])
 
 	# Remove files
 	subprocess.run(["rm", "-f", cache_file, clangd_database_file])
@@ -54,27 +59,33 @@ def generate_cmake_flags(build_type):
 	flags.extend(["-DPROJECT_NAME=" + project_name])
 
 	flags.extend(["-DCMAKE_BUILD_TYPE=" + build_type])
+	flags.extend(["-DUSE_CCACHE=YES"])
+	flags.extend(["-DCCACHE_OPTIONS=\"CCACHE_CPP2=true;CCACHE_SLOPPINESS=clang_index_store\""])
 
-	flags.extend(["-DCMAKE_CXX_COMPILER=clang++"])
-	flags.extend(["-DCMAKE_C_COMPILER=clang"])
+	flags.extend(["-DCMAKE_CXX_COMPILER=/usr/lib/llvm-{}/bin/clang++".format(llvm_version)])
+	flags.extend(["-DCMAKE_C_COMPILER=/usr/lib/llvm-{}/bin/clang".format(llvm_version)])
 
 	flags.extend(["-DCMAKE_CXX_STANDARD=23"])
+	flags.extend(["-DCMAKE_C_STANDARD=17"])
 
+	flags.extend(["-DCMAKE_CXX_STANDARD_REQUIRED=ON"])
+	flags.extend(["-DCMAKE_C_STANDARD_REQUIRED=ON"])
 
-	flags.extend(["-DCMAKE_CXX_FLAGS=-march=native"])
+	flags.extend(["-DCMAKE_PREFIX_PATH=/usr/lib/llvm-{}".format(llvm_version)])
 	flags.extend(["-DCMAKE_C_FLAGS=-march=native"])
 
 	flags.extend(["-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON"])
 	flags.extend(["-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"])
 
-	flags.extend(["-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=/usr/lib/llvm-17/bin/clang-scan-deps"])
+	flags.extend(["-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=/usr/lib/llvm-{}/bin/clang-scan-deps".format(llvm_version)])
 
+	cxx_flags = " "
 	if build_type == "release":
-		flags.extend(["-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} -O3"])
-		flags.extend(["-DCMAKE_C_FLAGS=${CMAKE_C_FLAGS} -O3 --trace-includes"])
+		cxx_flags += "-O3 "
+	if build_type == "release":
+		flags.extend(["-DCMAKE_CXX_FLAGS_RELEASE=" + cxx_flags])
 	else:
-		flags.extend(["-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS} -g"])
-		flags.extend(["-DCMAKE_C_FLAGS=${CMAKE_C_FLAGS} -g --trace-includes"])
+		flags.extend(["-DCMAKE_CXX_FLAGS=" + cxx_flags])
 
 	return flags
 
@@ -98,11 +109,21 @@ def generate_vscode_files():
 				"type": "lldb",
 				"request": "launch",
 				"program": f"${{workspaceFolder}}/bin/{project_name}",
-				"args": [ "-p", "./test_replica", "-c", "*.png", "-z", "-t", "-v", "0" ],
+				"args": [],
 				"stopAtEntry": "false",
 				"cwd": "${workspaceFolder}",
-				"environment": [],
+				"environment": [
+					{ "name": "TERM", "value": "xterm-256color" },
+					{ "name": "PATH", "value": "${env:PATH}" }
+				],
 				"externalConsole": "false",
+				"setupCommands": [
+					{
+						"description": "Enable pretty-printing for gdb",
+						"text": "-enable-pretty-printing",
+						"ignoreFailures": True
+					}
+				],
 				"preLaunchTask": "build",
 				"runInTerminal": "true"
 			}
@@ -161,6 +182,10 @@ def check_cmakelists_change():
 		return True
 	return current_sum != stored_sum
 
+def get_full_path(file):
+	"""Returns the full path of the file."""
+	path = os.path.expanduser(file)
+	return os.path.abspath(path)
 
 def post_build():
 	os.system(f"rm -f {start_dir}/test_replica/*")
@@ -170,6 +195,7 @@ def post_build():
 		print("Rsync failed.")
 		sys.exit(1)
 
+	return None;
 
 def compile(build_type="Debug"):
 	"""Runs cmake and make based on build type."""
@@ -184,12 +210,19 @@ def compile(build_type="Debug"):
 		with open(cache_file, "w") as f:
 			f.write(subprocess.run(["sha1sum", cmake_file], capture_output=True).stdout.decode().strip().split()[0])
 
-	ninja_return_code = subprocess.run(["ninja"], cwd=build_dir).returncode
-	if ninja_return_code != 0:
-		print("Build failed.")
-		sys.exit(1)
+	GREEN_COLOR = "\033[92m"
+	RED_COLOR = "\033[91m"
+	YELLOW_COLOR = "\033[93m"
+	BLUE_COLOR = "\033[94m"
+	END_COLOR = "\033[0m"
+	os.environ["NINJA_STATUS"] = f"[{GREEN_COLOR}%f{END_COLOR}/{YELLOW_COLOR}%t{END_COLOR} %o(%c)/s : %P] "
+	ninja_exit_code = subprocess.run(["ninja"], cwd=build_dir).returncode
+	if ninja_exit_code != 0:
+		print("Build failed with exit code", ninja_exit_code)
+		sys.exit(ninja_exit_code)
 
-	post_build()
+	# post_build()
+	return None;
 
 def generate_docs():
 	"""Generates documentation using Doxygen."""
@@ -197,23 +230,25 @@ def generate_docs():
 	file_exists = subprocess.run(["test", "-f", "Doxyfile"]).returncode == 0
 	if not file_exists:
 		print("Doxyfile does not exist, skipping documentation generation.")
-		return
+		return None;
 
 	create_dir()
 
 	subprocess.run(["doxygen", "-q Doxyfile ./"], cwd=start_dir)
 	subprocess.run(["xdg-open", docs_dir + "/html/index.html"])
 
+	return None;
 
 def copy_compile_commands():
 	"""Copies compile_commands.json to VSCode folder."""
 	file_exists = subprocess.run(["test", "-f", database_file]).returncode == 0
 	if not file_exists:
 		print("compile_commands.json does not exist, skipping copy.")
-		return
+		return None;
 
 	subprocess.run(["rsync", "-acz", database_file, clangd_database_file])
 
+	return None;
 def generate_project(build_type):
 	# Capitalize first letter for cmake build type
 	build_type = build_type.capitalize()
@@ -225,14 +260,14 @@ def run_project():
 	file_exists = subprocess.run(["test", "-f", f"{bin_dir}/{project_name}"]).returncode == 0
 	if not file_exists:
 		print("Executable does not exist, skipping run.")
-		return
+		return None;
 
 	subprocess.run(f"{bin_dir}/{project_name}", shell=True, cwd=start_dir)
 	sys.exit(0)
 
 def check_executable(executable):
 	"""Check if the executable is installed."""
-	return subprocess.run(["which", executable], stdout=subprocess.DEVNULL).returncode == 0
+	return subprocess.run(["which", executable], stdout=subprocess.DEVNULL).returncode == 0;
 
 def test_required():
 	"""Check if required executables are installed."""
@@ -244,9 +279,10 @@ def test_required():
 		for exe in missing_executables:
 			print(f"  - {exe}")
 
-		print("sudo apt update -y && sudo apt install -y clang-tools-17 rsync ssh desktop-file-utils cmake ninja-build graphviz doxygen clang clangd clang-tools-17 clang-tidy clang-format llvm doxygen graphviz gdb libspdlog-dev build-essential")
+		print("sudo apt update -y && sudo apt install -y rsync ssh desktop-file-utils cmake ninja-build clang clangd clang-tools-17 clang-tidy clang-format llvm doxygen graphviz gdb libspdlog-dev build-essential")
 
 		sys.exit(1)
+	return None;
 
 def install_project():
 	"""Installs the project."""
