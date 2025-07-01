@@ -39,4 +39,5 @@
 **/build
 **/bin
 **/.vscode
+*cache*
 *test*
